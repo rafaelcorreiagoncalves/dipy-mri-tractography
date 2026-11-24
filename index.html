@@ -34,7 +34,6 @@
     .toolbar button[aria-pressed="true"] {background:#12314b;color:#e5f7ff;border-color:#4982ad}
     .toolbar button .dot {height:7px;width:7px;background:currentColor;border-radius:50%;opacity:.65}
     .toolbar button[aria-pressed="true"] .dot {opacity:1;background:var(--cyan)}
-    .toolbar button.icon {min-width:43px;padding:0 11px;font-size:18px;line-height:1}
     .toolbar button:disabled {opacity:.45;cursor:not-allowed}
     .divider {align-self:stretch;width:1px;background:var(--edge);margin:6px 2px;flex-shrink:0}
     .viewport {position:relative;isolation:isolate;flex:1 1 0;min-height:0;min-width:0;overflow:hidden;border-top:1px solid #152035;border-bottom:1px solid #152035;background:var(--bg)}
@@ -112,8 +111,6 @@
     <button type="button" data-trace="5" aria-label="Mostrar ou ocultar as 505 sementes" aria-pressed="false"><span class="dot"></span>Sementes</button>
     <button type="button" id="axes-btn" aria-pressed="false"><span class="dot"></span>Eixos</button>
     <span class="divider" aria-hidden="true"></span>
-    <button type="button" class="icon" id="zoom-out" aria-label="Diminuir zoom">−</button>
-    <button type="button" class="icon" id="zoom-in" aria-label="Aumentar zoom">+</button>
     <button type="button" id="reset-view" aria-label="Repor perspetiva inicial">↺ Vista</button>
   </nav>
   <main class="viewport" id="viewport" aria-label="Tractografia cerebral tridimensional interativa">
@@ -3819,18 +3816,6 @@ function setVisibility(i, visible) {
   controls.find(b=>Number(b.dataset.trace)===i).setAttribute('aria-pressed',String(visible));
   Plotly.restyle(plot, {visible: visible ? true : 'legendonly'}, [i]).catch(function(err){console.warn(err)});
 }
-function zoom(scale) {
-  if (!ready) return;
-  const current = (plot.layout.scene && plot.layout.scene.camera) || homeCamera;
-  const eye = (current && current.eye) ? current.eye : homeCamera.eye;
-  const next = {};
-  for (const k of ['x','y','z']) next[k] = eye[k] * scale;
-  const distance = Math.hypot(next.x,next.y,next.z);
-  const constrained = Math.max(0.85,Math.min(6,distance));
-  const multiplier=constrained/distance;
-  for (const k of ['x','y','z']) next[k]*=multiplier;
-  Plotly.relayout(plot,{'scene.camera.eye':next}).catch(function(err){console.warn(err)});
-}
 controls.forEach(function(button){
   button.addEventListener('click',function(){
     const i=Number(button.dataset.trace);
@@ -3851,8 +3836,6 @@ document.getElementById('reset-view').addEventListener('click',function(){
   if (!ready) return;
   Plotly.relayout(plot,{'scene.camera':homeCamera}).catch(function(err){console.warn(err)});
 });
-document.getElementById('zoom-in').addEventListener('click',function(){zoom(0.8)});
-document.getElementById('zoom-out').addEventListener('click',function(){zoom(1.25)});
 
 const layout = {...baseLayout, ...sizes()};
 for (const key of ['xaxis','yaxis','zaxis']) layout.scene[key].visible=axesVisible;
