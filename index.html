@@ -38,7 +38,14 @@
     .toolbar button:disabled {opacity:.45;cursor:not-allowed}
     .divider {align-self:stretch;width:1px;background:var(--edge);margin:6px 2px;flex-shrink:0}
     .viewport {position:relative;isolation:isolate;flex:1 1 0;min-height:0;min-width:0;overflow:hidden;border-top:1px solid #152035;border-bottom:1px solid #152035;background:var(--bg)}
-    #dipy-plot {width:100%;height:100%;min-width:0;min-height:0;touch-action:none}
+    /* Bloqueia o zoom/pan da pagina so sobre o visualizador 3D. */
+    #viewport, #dipy-plot, #dipy-plot .plot-container, #dipy-plot .gl-container, #dipy-plot canvas {
+      touch-action:none;
+      -webkit-user-select:none;
+      user-select:none;
+      -webkit-touch-callout:none;
+    }
+    #dipy-plot {width:100%;height:100%;min-width:0;min-height:0}
     #dipy-plot .js-plotly-plot, #dipy-plot .plot-container {width:100%;height:100%}
     .loading {position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:12px;z-index:3;pointer-events:none;color:var(--muted);font-size:13px;letter-spacing:.015em;background:var(--bg)}
     .loading.hidden {display:none}
@@ -3881,6 +3888,110 @@ plot.addEventListener('pointerdown',function(){
     document.getElementById('hint').style.display='none';
   }
 },{passive:true});
+
+/*
+ * Zoom nativo para telemovel: o Plotly WebGL 3D nao fornece zoom por pinca
+ * fiavel em todos os browsers. A distancia entre dois dedos controla a
+ * distancia da camera ao objeto; um dedo continua reservado ao orbit do Plotly.
+ * Os eventos sao intercetados na fase de captura para evitar o zoom da pagina
+ * e conflitos com os manipuladores internos de toque do Plotly.
+ */
+const viewport3d = document.getElementById('viewport');
+const pinch = {
+  active: false,
+  initialDistance: 0,
+  initialEye: null,
+  nextEye: null,
+  inflight: false,
+  frame: 0
+};
+function fingersDistance(touches) {
+  if (!touches || touches.length < 2) return 0;
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.hypot(dx, dy);
+}
+function getCameraEye() {
+  const live = (plot._fullLayout && plot._fullLayout.scene && plot._fullLayout.scene.camera)
+           || (plot.layout && plot.layout.scene && plot.layout.scene.camera)
+           || homeCamera;
+  const eye = (live && live.eye) || homeCamera.eye;
+  return {x:Number(eye.x)||0, y:Number(eye.y)||0, z:Number(eye.z)||0};
+}
+function flushPinch() {
+  if (!ready || pinch.inflight || !pinch.nextEye) return;
+  const eye = pinch.nextEye;
+  pinch.nextEye = null;
+  pinch.inflight = true;
+  Plotly.relayout(plot, {'scene.camera.eye':eye})
+    .catch(function(err){ console.warn('Zoom por gesto:', err); })
+    .finally(function(){
+      pinch.inflight = false;
+      if (pinch.nextEye && !pinch.frame) {
+        pinch.frame = requestAnimationFrame(function(){ pinch.frame=0; flushPinch(); });
+      }
+    });
+}
+function startPinch(touches) {
+  const d = fingersDistance(touches);
+  if (!ready || d < 12) return;
+  pinch.active = true;
+  pinch.initialDistance = d;
+  pinch.initialEye = getCameraEye();
+  pinch.nextEye = null;
+  document.getElementById('hint').style.display = 'none';
+}
+function onTouchStart(event) {
+  if (!ready || event.touches.length < 2) return;
+  if (event.cancelable) event.preventDefault();
+  event.stopPropagation();
+  if (!pinch.active) startPinch(event.touches);
+}
+function onTouchMove(event) {
+  if (!ready || event.touches.length < 2) return;
+  if (event.cancelable) event.preventDefault();
+  event.stopPropagation();
+  if (!pinch.active) startPinch(event.touches);
+  if (!pinch.active) return;
+  const distance = fingersDistance(event.touches);
+  if (distance < 12) return;
+  const factor = pinch.initialDistance / distance;
+  const base = pinch.initialEye;
+  const originalLength = Math.hypot(base.x, base.y, base.z);
+  if (originalLength < 1e-5) return;
+  // Limites de zoom seguros, sem alterar a rotacao atual da camera.
+  const zoomLength = Math.max(0.65, Math.min(8.0, originalLength * factor));
+  const zoomFactor = zoomLength / originalLength;
+  pinch.nextEye = {
+    x: base.x * zoomFactor,
+    y: base.y * zoomFactor,
+    z: base.z * zoomFactor
+  };
+  if (!pinch.frame) {
+    pinch.frame = requestAnimationFrame(function(){ pinch.frame=0; flushPinch(); });
+  }
+}
+function onTouchEnd(event) {
+  if (!pinch.active) return;
+  if (event.touches.length >= 2) {
+    // Dedos substituidos numa sessao multiponto: reinicia a referencia.
+    startPinch(event.touches);
+  } else {
+    pinch.active = false;
+    pinch.initialEye = null;
+  }
+}
+viewport3d.addEventListener('touchstart', onTouchStart, {capture:true, passive:false});
+viewport3d.addEventListener('touchmove', onTouchMove, {capture:true, passive:false});
+viewport3d.addEventListener('touchend', onTouchEnd, {capture:true, passive:false});
+viewport3d.addEventListener('touchcancel', onTouchEnd, {capture:true, passive:false});
+
+// Impede o Safari iOS de ampliar a pagina quando a pinca e sobre o 3D.
+for (const name of ['gesturestart','gesturechange','gestureend']) {
+  document.addEventListener(name, function(e){
+    if (viewport3d.contains(e.target) && e.cancelable) e.preventDefault();
+  }, {capture:true, passive:false});
+}
 })();
 </script>
 </body>
